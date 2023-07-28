@@ -1,8 +1,7 @@
 use std::borrow::Cow;
-use crate::{Result, Error};
+use crate::{Result, Error, TOKEN};
 use std::path::Path;
 
-use once_cell::sync::Lazy;
 use reqwest::Url;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -10,10 +9,6 @@ use tokio::try_join;
 
 use crate::api::forms::RepositoryResponse;
 use crate::pandoc::save_to_file_and_convert;
-
-static TOKEN: Lazy<String> = Lazy::new(|| {
-    std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN not set.")
-});
 
 #[derive(Clone)]
 pub struct HttpClient {

@@ -1,6 +1,6 @@
 use std::{fs::{File, self}, io};
 
-use crate::{Result, Error};
+use crate::{Result, Error, TOKEN};
 use tempfile::Builder;
 use tokio::process::Command;
 use url::Url;
@@ -19,7 +19,7 @@ pub async fn save_to_file_and_convert(download_url: &str, converting_from: &str,
     // `cd` into the temporary directory
     std::env::set_current_dir(tmp_dir.path())?;
 
-    let response = client.get(download_url).send().await?;
+    let response = client.get(download_url).bearer_auth(&*TOKEN).send().await?;
 
     // Where the response contents will be saved to
     let dest = destination_file(response.url());

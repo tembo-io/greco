@@ -6,6 +6,11 @@ mod pandoc;
 use std::borrow::Cow;
 
 pub use error::{Error, Result};
+use once_cell::sync::Lazy;
+
+static TOKEN: Lazy<String> = Lazy::new(|| {
+    std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN not set.")
+});
 
 #[tokio::main]
 async fn main() -> crate::Result<()> {
