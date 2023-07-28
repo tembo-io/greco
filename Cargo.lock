@@ -597,6 +597,7 @@ version = "0.1.0"
 dependencies = [
  "actix-cors",
  "actix-web",
+ "base64",
  "once_cell",
  "reqwest",
  "serde",

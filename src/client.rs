@@ -1,5 +1,5 @@
+use crate::{Error, Result, TOKEN, b64};
 use std::borrow::Cow;
-use crate::{Result, Error, TOKEN};
 use std::path::Path;
 
 use reqwest::Url;
@@ -28,17 +28,28 @@ impl HttpClient {
         }
     }
 
-    fn build_url(organization: &str, repository: &str, get_readme: bool) -> Result<Url> {
-        let url = format!(
-            "https://api.github.com/repos/{organization}/{repository}{}",
-            if get_readme { "/readme" } else { "" }
-        );
+    fn build_description_url(organization: &str, repository: &str) -> Result<Url> {
+        let url = format!("https://api.github.com/repos/{organization}/{repository}",);
+
+        Url::parse(&url).map_err(Into::into)
+    }
+
+    fn build_readme_url(
+        organization: &str,
+        repository: &str,
+        maybe_subdir: Option<&str>,
+    ) -> Result<Url> {
+        let url = if let Some(subdir) = maybe_subdir {
+            format!("https://api.github.com/repos/{organization}/{repository}/readme/{subdir}",)
+        } else {
+            format!("https://api.github.com/repos/{organization}/{repository}/readme")
+        };
 
         Url::parse(&url).map_err(Into::into)
     }
 
     async fn fetch_description(&self, organization: &str, repository: &str) -> Result<String> {
-        let url = Self::build_url(organization, repository, false)?;
+        let url = Self::build_description_url(organization, repository)?;
 
         #[derive(Deserialize)]
         struct Response {
@@ -50,30 +61,32 @@ impl HttpClient {
         Ok(resp.description.unwrap_or_default())
     }
 
-    async fn fetch_readme(&self, organization: &str, repository: &str) -> Result<String> {
-        let url = Self::build_url(organization, repository, true)?;
+    async fn fetch_readme(
+        &self,
+        organization: &str,
+        repository: &str,
+        subdirectory: Option<&str>,
+    ) -> Result<String> {
+        let url = Self::build_readme_url(organization, repository, subdirectory)?;
 
         #[derive(Deserialize)]
         struct Response {
             name: String,
-            download_url: String,
+            content: String,
         }
 
-        let Response { name, download_url } = self.get(url).await?;
+        let Response { name, content } = self.get(url).await?;
 
         let readme = if let Some(extension) = extract_extension(&name) {
             match &*extension {
                 "md" => {
                     // Markdown, do no extra work
-                    self.get_text(&download_url).await?
+                    String::from_utf8(b64::decode(&content)?)?
                 }
                 other_extension => {
-                    tracing::info!(
-                        "Got another extension: {}",
-                        other_extension
-                    );
+                    tracing::info!("Got another extension: {}", other_extension);
 
-                    save_to_file_and_convert(&download_url, other_extension, &self.inner).await?
+                    save_to_file_and_convert(&name, other_extension, &content).await?
                 }
             }
         } else {
@@ -81,19 +94,6 @@ impl HttpClient {
         };
 
         Ok(readme)
-    }
-
-    async fn get_text(&self, url: &str) -> Result<String> {
-        self.inner
-            .get(url)
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "request")
-            .bearer_auth(&*TOKEN)
-            .send()
-            .await?
-            .text()
-            .await
-            .map_err(Into::into)
     }
 
     async fn get<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
@@ -115,17 +115,20 @@ impl HttpClient {
         response.json().await.map_err(Into::into)
     }
 
-    pub async fn fetch(&self, organization: &str, repository: &str) -> Result<RepositoryResponse> {
+    pub async fn fetch(
+        &self,
+        organization: &str,
+        repository: &str,
+        subdirectory: Option<&str>,
+    ) -> Result<RepositoryResponse> {
         let (description, readme) = try_join!(
             self.fetch_description(organization, repository),
-            self.fetch_readme(organization, repository)
+            self.fetch_readme(organization, repository, subdirectory)
         )?;
-        
-        let resp = RepositoryResponse {
+
+        Ok(RepositoryResponse {
             description,
             readme,
-        };
-
-        Ok(resp)
+        })
     }
 }

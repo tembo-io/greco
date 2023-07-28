@@ -1,41 +1,33 @@
-use std::{fs::{File, self}, io};
+use std::{
+    fs::{self, File},
+    io::{self, Cursor},
+};
 
-use crate::{Result, Error, TOKEN};
+use crate::{Error, Result, b64};
 use tempfile::Builder;
 use tokio::process::Command;
-use url::Url;
 
-fn destination_file(url: &Url) -> String {
-    tracing::info!("{url}");
-    url.path_segments()
-        .and_then(|segments| segments.last())
-        .filter(|file| file.is_empty())
-        .unwrap_or("tmp.file")
-        .to_owned()
-}
-
-pub async fn save_to_file_and_convert(download_url: &str, converting_from: &str, client: &reqwest::Client) -> Result<String> {
+pub async fn save_to_file_and_convert(
+    original_file_name: &str,
+    converting_from: &str,
+    b64_encoded: &str,
+) -> Result<String> {
     let tmp_dir = Builder::new().prefix("greco").tempdir()?;
     // `cd` into the temporary directory
     std::env::set_current_dir(tmp_dir.path())?;
 
-    let response = client.get(download_url).bearer_auth(&*TOKEN).send().await?;
-
-    // Where the response contents will be saved to
-    let dest = destination_file(response.url());
-    
     // Save to file
     {
-        let mut dest_file = File::create(&dest)?;
-        let downloaded_buffer = response.text().await?;
+        let mut dest_file = File::create(original_file_name)?;
+        let decoded_buffer = b64::decode(b64_encoded)?;
 
-        io::copy(&mut downloaded_buffer.as_bytes(), &mut dest_file)?;
+        io::copy(&mut Cursor::new(decoded_buffer), &mut dest_file)?;
     }
 
     std::mem::forget(tmp_dir);
 
     // Run `pandoc` to convert the files
-    convert_file(&dest, converting_from).await
+    convert_file(&original_file_name, converting_from).await
 }
 
 async fn convert_file(origin: &str, converting_from: &str) -> Result<String> {
@@ -44,22 +36,28 @@ async fn convert_file(origin: &str, converting_from: &str) -> Result<String> {
 
     let arguments = [
         // The file to read from
-        origin, 
+        origin,
         // Convert from whatever extension we got
-        "-f", converting_from,
+        "-f",
+        converting_from,
         // Convert into GitHub-flavored Markdown
-        "-t", "gfm",
+        "-t",
+        "gfm",
         // Where we'll be saving into
-        "-o", &converted
+        "-o",
+        &converted,
     ];
 
-    let exitted_successfully = Command::new("pandoc").args(arguments).spawn()?.wait().await?.success();
+    let exitted_successfully = Command::new("pandoc")
+        .args(arguments)
+        .spawn()?
+        .wait()
+        .await?
+        .success();
 
     if !exitted_successfully {
         return Err(Error::Pandoc);
     }
-
-    tracing::info!("{}", fs::read_to_string(&converted).unwrap());
 
     fs::read_to_string(converted).map_err(Into::into)
 }

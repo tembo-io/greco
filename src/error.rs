@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 use actix_web::ResponseError;
 use url::ParseError;
 
@@ -17,6 +19,10 @@ pub enum Error {
     Pandoc,
     #[error("README had no recognizable extension")]
     NoExtensionFound,
+    #[error("base64 decode error: {0}")]
+    Base64(#[from] base64::DecodeError),
+    #[error("Failed to build String from bytes: {0}")]
+    Utf8(#[from] FromUtf8Error) 
 }
 
 impl ResponseError for Error {}
